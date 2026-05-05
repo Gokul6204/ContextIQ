@@ -6,11 +6,11 @@ from typing import List, Optional
 import shutil
 import logging
 
-from app.llm_service import LLMService
-from app.rag_service import RAGService
-from app.document_service import DocumentService
-from app.models import User, Chat, Message, UserDocument, SessionLocal
-from app.auth import get_password_hash, verify_password, create_access_token, get_current_user_id
+from llm_service import LLMService
+from rag_service import RAGService
+from document_service import DocumentService
+from models import User, Chat, Message, UserDocument, SessionLocal
+from auth import get_password_hash, verify_password, create_access_token, get_current_user_id
 from sqlalchemy.orm import Session
 from fastapi import Depends, status
 from fastapi.security import OAuth2PasswordRequestForm

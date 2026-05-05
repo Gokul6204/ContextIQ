@@ -308,7 +308,13 @@ async def summarize_document(file_name: str):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    from sqlalchemy import text
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

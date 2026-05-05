@@ -36,7 +36,7 @@ def kill_port_owner(port):
 def check_db_connection():
     """Test the Supabase connection before starting uvicorn"""
     try:
-        from app.models import engine
+        from models import engine
         from sqlalchemy import text
         logger.info("Testing Database connection...")
         with engine.connect() as conn:

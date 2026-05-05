@@ -4,13 +4,15 @@ import remarkGfm from 'remark-gfm'
 import './App.css'
 
 function App() {
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  
   const [token, setToken] = useState(localStorage.getItem('token'))
   const [userEmail, setUserEmail] = useState(localStorage.getItem('userEmail'))
   const [authMode, setAuthMode] = useState('login')
   const [authError, setAuthError] = useState('')
   
   const [viewMode, setViewMode] = useState('chat') 
-  const [sidebarOpen, setSidebarOpen] = useState(false) // For mobile
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [chats, setChats] = useState([])
   const [activeChat, setActiveChat] = useState(null)
   const [messages, setMessages] = useState([
@@ -39,7 +41,7 @@ function App() {
 
   const fetchChats = async () => {
     try {
-      const response = await fetch('http://localhost:8000/chats', {
+      const response = await fetch(`${API_BASE}/chats`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
@@ -51,7 +53,7 @@ function App() {
 
   const fetchSources = async () => {
     try {
-      const response = await fetch('http://localhost:8000/documents', {
+      const response = await fetch(`${API_BASE}/documents`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
@@ -74,7 +76,7 @@ function App() {
       formData.append('username', email)
       formData.append('password', password)
 
-      const response = await fetch(`http://localhost:8000/${endpoint}`, {
+      const response = await fetch(`${API_BASE}/${endpoint}`, {
         method: 'POST',
         headers: endpoint === 'login' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : { 'Content-Type': 'application/json' },
         body: endpoint === 'login' ? formData : JSON.stringify({ email, password })
@@ -111,7 +113,7 @@ function App() {
 
   const handleNewChat = async () => {
     try {
-      const response = await fetch('http://localhost:8000/chats', {
+      const response = await fetch(`${API_BASE}/chats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ title: 'New Chat' })
@@ -131,7 +133,7 @@ function App() {
     if (window.innerWidth < 768) setSidebarOpen(false)
     setMessages([{ type: 'ai', text: `Loading ${chat.title}...`, sources: [] }])
     try {
-      const response = await fetch(`http://localhost:8000/chats/${chat.id}/messages`, {
+      const response = await fetch(`${API_BASE}/chats/${chat.id}/messages`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
@@ -152,7 +154,7 @@ function App() {
 
   const executeDeleteChat = async (chatId) => {
     try {
-      const res = await fetch(`http://localhost:8000/chats/${chatId}`, {
+      const res = await fetch(`${API_BASE}/chats/${chatId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -165,7 +167,7 @@ function App() {
 
   const executeDeleteSource = async (filename) => {
     try {
-      const res = await fetch(`http://localhost:8000/documents/${encodeURIComponent(filename)}`, {
+      const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -180,7 +182,7 @@ function App() {
     const currentInput = input; setInput('')
     setLoading(true)
     try {
-      const res = await fetch(`http://localhost:8000/query?chat_id=${activeChat.id}`, {
+      const res = await fetch(`${API_BASE}/query?chat_id=${activeChat.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ prompt: currentInput })
@@ -206,7 +208,7 @@ function App() {
     setUploadingFile({ name: file.name })
     const formData = new FormData(); formData.append('file', file)
     try {
-      const res = await fetch('http://localhost:8000/upload', {
+      const res = await fetch(`${API_BASE}/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
@@ -250,7 +252,6 @@ function App() {
         </div>
       )}
 
-      {/* Mobile Sidebar Overlay */}
       <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)}></div>
 
       <div className={`sidebar ${sidebarOpen ? 'visible' : ''}`}>

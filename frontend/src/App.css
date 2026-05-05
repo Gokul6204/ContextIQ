@@ -141,6 +141,30 @@ body {
 .sources-grid { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .large-source-card { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px; }
 
+/* Primary Upload Button */
+.primary-upload-btn {
+  border-radius: 8px;
+  width: 120px;
+  height: 40px;
+  font-weight: 500;
+  border: 1px solid #000000;
+  font-size: 14px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.primary-upload-btn:hover {
+  transform: translateY(1px);
+  box-shadow: 0 0 0 2px #e8eaed;
+  border-radius: 8px;
+  width: 120px;
+  height: 40px;
+  font-weight: 500;
+  font-size: 14px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
 /* Mobile Overlay */
 .sidebar-overlay {
   display: none;

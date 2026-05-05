@@ -53,5 +53,7 @@ torch
 docx2txt
 sqlalchemy
 passlib[bcrypt]
+gunicorn
+uvicorn[standard]
 python-jose[cryptography]
-bcrypt
+bcrypt

@@ -15,6 +15,9 @@ class RAGService:
         self._embeddings = None
         self._vector_db = None
         
+        # HuggingFace API Token
+        self.hf_token = os.getenv("HF_TOKEN")
+        
         # Chroma Cloud credentials
         self.chroma_api_key = os.getenv("CHROMA_API_KEY")
         self.chroma_tenant = os.getenv("CHROMA_TENANT")
@@ -27,13 +30,21 @@ class RAGService:
     @property
     def embeddings(self):
         if self._embeddings is None:
-            from langchain_huggingface import HuggingFaceEmbeddings
-            logger.info("Lazily initializing HuggingFace embeddings...")
-            self._embeddings = HuggingFaceEmbeddings(
-                model_name="BAAI/bge-small-en-v1.5",
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            if self.hf_token:
+                from langchain_huggingface import HuggingFaceEndpointEmbeddings
+                logger.info("Initializing HuggingFace Inference API Embeddings...")
+                self._embeddings = HuggingFaceEndpointEmbeddings(
+                    model="BAAI/bge-small-en-v1.5",
+                    huggingfacehub_api_token=self.hf_token
+                )
+            else:
+                from langchain_huggingface import HuggingFaceEmbeddings
+                logger.info("Lazily initializing local HuggingFace embeddings (No HF_TOKEN found)...")
+                self._embeddings = HuggingFaceEmbeddings(
+                    model_name="BAAI/bge-small-en-v1.5",
+                    model_kwargs={"device": "cpu"},
+                    encode_kwargs={"normalize_embeddings": True},
+                )
         return self._embeddings
 
     @property

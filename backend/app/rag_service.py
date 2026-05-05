@@ -12,21 +12,9 @@ load_dotenv()
 
 class RAGService:
     def __init__(self):
-        logger.info("Initializing HuggingFace embeddings...")
+        self._embeddings = None
+        self._vector_db = None
         
-        # Use a high-quality, lightweight embedding model
-        # self.embeddings = HuggingFaceEmbeddings(
-        #     model_name="sentence-transformers/all-MiniLM-L6-v2",
-        #     model_kwargs={"device": "cpu"},
-        #     encode_kwargs={"normalize_embeddings": True},
-        # )
-
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="BAAI/bge-small-en-v1.5",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
-        )
-
         # Chroma Cloud credentials
         self.chroma_api_key = os.getenv("CHROMA_API_KEY")
         self.chroma_tenant = os.getenv("CHROMA_TENANT")
@@ -36,39 +24,55 @@ class RAGService:
         self.persist_directory = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "chroma_db")
         os.makedirs(self.persist_directory, exist_ok=True)
 
-        logger.info("Initializing ContextIQ Vector Engine...")
-        
-        # Try Cloud First
-        if self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
-            try:
-                logger.info(f"Connecting to Chroma Cloud (Database: {self.chroma_database})...")
-                client = chromadb.CloudClient(
-                    api_key=self.chroma_api_key,
-                    tenant=self.chroma_tenant,
-                    database=self.chroma_database
-                )
-                self.vector_db = Chroma(
-                    client=client,
-                    collection_name="contextiq_v1",
-                    embedding_function=self.embeddings
-                )
-                logger.info("Successfully connected to Chroma Cloud.")
-                return
-            except Exception as e:
-                logger.warning(f"Chroma Cloud connection failed: {e}. Falling back to Local Engine.")
-        
-        # Fallback to Local
-        try:
-            logger.info(f"Initializing Local Chroma Engine at: {self.persist_directory}")
-            self.vector_db = Chroma(
-                persist_directory=self.persist_directory,
-                collection_name="contextiq_v1",
-                embedding_function=self.embeddings
+    @property
+    def embeddings(self):
+        if self._embeddings is None:
+            from langchain_huggingface import HuggingFaceEmbeddings
+            logger.info("Lazily initializing HuggingFace embeddings...")
+            self._embeddings = HuggingFaceEmbeddings(
+                model_name="BAAI/bge-small-en-v1.5",
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
             )
-            logger.info("Local Chroma Engine initialized successfully.")
-        except Exception as e:
-            logger.error(f"Critical Failure: Could not initialize any Vector Engine: {str(e)}", exc_info=True)
-            self.vector_db = None
+        return self._embeddings
+
+    @property
+    def vector_db(self):
+        if self._vector_db is None:
+            from langchain_chroma import Chroma
+            logger.info("Lazily initializing ContextIQ Vector Engine...")
+            
+            # Try Cloud First
+            if self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
+                try:
+                    logger.info(f"Connecting to Chroma Cloud (Database: {self.chroma_database})...")
+                    client = chromadb.CloudClient(
+                        api_key=self.chroma_api_key,
+                        tenant=self.chroma_tenant,
+                        database=self.chroma_database
+                    )
+                    self._vector_db = Chroma(
+                        client=client,
+                        collection_name="contextiq_v1",
+                        embedding_function=self.embeddings
+                    )
+                    logger.info("Successfully connected to Chroma Cloud.")
+                except Exception as e:
+                    logger.warning(f"Chroma Cloud connection failed: {e}. Falling back to Local Engine.")
+            
+            if self._vector_db is None:
+                # Fallback to Local
+                try:
+                    logger.info(f"Initializing Local Chroma Engine at: {self.persist_directory}")
+                    self._vector_db = Chroma(
+                        persist_directory=self.persist_directory,
+                        collection_name="contextiq_v1",
+                        embedding_function=self.embeddings
+                    )
+                    logger.info("Local Chroma Engine initialized successfully.")
+                except Exception as e:
+                    logger.error(f"Critical Failure: Could not initialize any Vector Engine: {str(e)}", exc_info=True)
+        return self._vector_db
 
     def add_documents(self, documents: List[Document], user_id: int):
         """Add documents to the vector store with user isolation"""

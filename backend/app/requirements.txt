@@ -29,6 +29,7 @@ langchain-groq==0.1.10
 langchain-postgres
 
 chromadb==0.5.5
+langchain-chroma
 
 pypdf
 pymupdf
@@ -49,3 +50,8 @@ huggingface_hub==0.23.5
 
 sentence-transformers
 torch
+docx2txt
+sqlalchemy
+passlib[bcrypt]
+python-jose[cryptography]
+bcrypt

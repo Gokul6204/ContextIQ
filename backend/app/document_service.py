@@ -1,5 +1,5 @@
 import os
-from langchain_community.document_loaders import PyMuPDFLoader, TextLoader, UnstructuredURLLoader
+from langchain_community.document_loaders import PyMuPDFLoader, TextLoader, UnstructuredURLLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from typing import List
@@ -24,6 +24,17 @@ class DocumentService:
 
     def process_url(self, url: str) -> List[Document]:
         loader = UnstructuredURLLoader(urls=[url])
+        docs = loader.load()
+        return self.text_splitter.split_documents(docs)
+
+    def process_docx(self, file_path: str) -> List[Document]:
+        loader = Docx2txtLoader(file_path)
+        docs = loader.load()
+        return self.text_splitter.split_documents(docs)
+
+    def process_markdown(self, file_path: str) -> List[Document]:
+        # Markdown can be loaded with TextLoader
+        loader = TextLoader(file_path)
         docs = loader.load()
         return self.text_splitter.split_documents(docs)
  

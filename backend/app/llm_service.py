@@ -13,8 +13,8 @@ class LLMService:
             groq_api_key=self.api_key,
             model_name=model_name,
             temperature=0.1,
-            max_tokens=512,
-            timeout=30 # 30 seconds timeout
+            max_tokens=2048, # Increased for detailed research answers
+            timeout=60 # Increased for stability on long generations
         )
         self.prompt_template = ChatPromptTemplate.from_template("""
             You are Antigravity, an advanced analytical AI research assistant inspired by NotebookLM.
@@ -22,12 +22,11 @@ class LLMService:
             Your goal is to provide precise, structured, and context-grounded answers.
 
             CRITICAL RULES:
-            1. Use ONLY the provided Context.
-            2. Do NOT use external knowledge.
-            3. If the answer is not clearly present in the Context, say:
-            "Based on the documents provided, I couldn't find a direct mention of this topic."
-            4. Maintain a professional technical tone.
-            5. Keep answers under 500 words unless necessary.
+            1. Try your best to answer the question using the provided Context.
+            2. If the Context doesn't contain the exact keywords, look for conceptually related information and use it.
+            3. You may use your general knowledge to supplement the answer and provide a rich response, but always prioritize what is in the Context.
+            4. If the Context is completely irrelevant or empty, answer the question anyway based on your general knowledge, but politely mention that the provided documents don't specifically cover it.
+            5. Be as helpful and conversational as possible. Maintain a professional tone.
 
             SPECIAL INSTRUCTION FOR COMPARISON QUESTIONS:
             If the question includes words like:

@@ -4,277 +4,346 @@ import remarkGfm from 'remark-gfm'
 import './App.css'
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('token'))
+  const [userEmail, setUserEmail] = useState(localStorage.getItem('userEmail'))
+  const [authMode, setAuthMode] = useState('login')
+  const [authError, setAuthError] = useState('')
+  
+  const [viewMode, setViewMode] = useState('chat') 
+  const [sidebarOpen, setSidebarOpen] = useState(false) // For mobile
+  const [chats, setChats] = useState([])
+  const [activeChat, setActiveChat] = useState(null)
   const [messages, setMessages] = useState([
-    { type: 'ai', text: 'Welcome to Noteboolm! Upload documents to get started.', sources: [] }
+    { type: 'ai', text: 'Welcome to ContextIQ. To get started, upload a document or select an existing chat.', sources: [] }
   ])
   const [input, setInput] = useState('')
   const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(null)
+  
+  const [deleteModal, setDeleteModal] = useState({ show: false, type: '', id: null, name: '' })
+
   const fileInputRef = useRef(null)
   const chatEndRef = useRef(null)
 
-  const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
   useEffect(() => {
-    scrollToBottom()
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Fetch sources on mount
   useEffect(() => {
-    fetchSources()
-  }, [])
+    if (token) {
+      fetchChats()
+      fetchSources()
+    }
+  }, [token])
+
+  const fetchChats = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/chats', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setChats(data.chats)
+      }
+    } catch (error) { console.error(error) }
+  }
 
   const fetchSources = async () => {
     try {
-      const response = await fetch('http://localhost:8000/documents')
+      const response = await fetch('http://localhost:8000/documents', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
       if (response.ok) {
         const data = await response.json()
         setSources(data.documents)
       }
-    } catch (error) {
-      console.error('Error fetching sources:', error)
+    } catch (error) { console.error(error) }
+  }
+
+  const handleAuth = async (email, password) => {
+    setAuthError('')
+    if (!email || !password) {
+      setAuthError('Please fill in all fields')
+      return
     }
+
+    const endpoint = authMode === 'login' ? 'login' : 'register'
+    try {
+      const formData = new URLSearchParams()
+      formData.append('username', email)
+      formData.append('password', password)
+
+      const response = await fetch(`http://localhost:8000/${endpoint}`, {
+        method: 'POST',
+        headers: endpoint === 'login' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : { 'Content-Type': 'application/json' },
+        body: endpoint === 'login' ? formData : JSON.stringify({ email, password })
+      })
+
+      const data = await response.json()
+      if (response.ok) {
+        if (endpoint === 'login') {
+          localStorage.setItem('token', data.access_token)
+          localStorage.setItem('userEmail', email)
+          setToken(data.access_token)
+          setUserEmail(email)
+        } else {
+          setAuthMode('login')
+          setAuthError('Registration successful! Please sign in.')
+        }
+      } else { 
+        setAuthError(data.detail || 'Authentication failed') 
+      }
+    } catch (error) { 
+      setAuthError('Server connection failed')
+      console.error(error) 
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.clear()
+    setToken(null)
+    setUserEmail(null)
+    setViewMode('chat')
+    setMessages([{ type: 'ai', text: 'Welcome to ContextIQ.', sources: [] }])
+    setChats([]); setSources([]); setActiveChat(null)
+  }
+
+  const handleNewChat = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ title: 'New Chat' })
+      })
+      if (response.ok) {
+        const newChat = await response.json()
+        setChats(prev => [newChat, ...prev])
+        selectChat(newChat)
+        if (window.innerWidth < 768) setSidebarOpen(false)
+      }
+    } catch (error) { console.error(error) }
+  }
+
+  const selectChat = async (chat) => {
+    setViewMode('chat')
+    setActiveChat(chat)
+    if (window.innerWidth < 768) setSidebarOpen(false)
+    setMessages([{ type: 'ai', text: `Loading ${chat.title}...`, sources: [] }])
+    try {
+      const response = await fetch(`http://localhost:8000/chats/${chat.id}/messages`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setMessages(data.messages.length > 0 ? data.messages.map(m => ({
+          type: m.role === 'user' ? 'user' : 'ai',
+          text: m.content
+        })) : [{ type: 'ai', text: 'New chat started. Ask anything about your sources!', sources: [] }])
+      }
+    } catch (error) { console.error(error) }
+  }
+
+  const confirmDelete = () => {
+    if (deleteModal.type === 'chat') executeDeleteChat(deleteModal.id)
+    else executeDeleteSource(deleteModal.name)
+    setDeleteModal({ show: false, type: '', id: null, name: '' })
+  }
+
+  const executeDeleteChat = async (chatId) => {
+    try {
+      const res = await fetch(`http://localhost:8000/chats/${chatId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        setChats(prev => prev.filter(c => c.id !== chatId))
+        if (activeChat?.id === chatId) setActiveChat(null)
+      }
+    } catch (error) { console.error(error) }
+  }
+
+  const executeDeleteSource = async (filename) => {
+    try {
+      const res = await fetch(`http://localhost:8000/documents/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) setSources(prev => prev.filter(s => s.name !== filename))
+    } catch (error) { console.error(error) }
   }
 
   const handleSend = async () => {
-    if (!input.trim()) return
-
+    if (!input.trim() || !activeChat || loading) return
     const userMsg = { type: 'user', text: input }
     setMessages(prev => [...prev, userMsg])
-    setInput('')
+    const currentInput = input; setInput('')
     setLoading(true)
-
     try {
-      const response = await fetch('http://localhost:8000/query', {
+      const res = await fetch(`http://localhost:8000/query?chat_id=${activeChat.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: input })
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ prompt: currentInput })
       })
-      const data = await response.json()
-      setMessages(prev => [...prev, { type: 'ai', text: data.answer, sources: data.sources }])
-    } catch (error) {
-      setMessages(prev => [...prev, { type: 'ai', text: 'Error connecting to backend. Make sure it is running on port 8000.', sources: [] }])
-    } finally {
-      setLoading(false)
-    }
+      if (res.ok) {
+        const data = await res.json()
+        setMessages(prev => [...prev, { type: 'ai', text: data.answer || 'No response received.' }])
+        if (data.new_title) {
+          setChats(prev => prev.map(c => c.id === activeChat.id ? { ...c, title: data.new_title } : c))
+          setActiveChat(prev => (prev?.id === activeChat.id ? { ...prev, title: data.new_title } : prev))
+        }
+      } else {
+        const errorData = await res.json()
+        setMessages(prev => [...prev, { type: 'ai', text: `Error: ${errorData.detail || 'Failed to get response'}` }])
+      }
+    } catch (error) { 
+      setMessages(prev => [...prev, { type: 'ai', text: 'Connection error.' }])
+    } finally { setLoading(false) }
   }
 
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0]
-    if (!file) return
-
-    // Initialize progress
-    setUploadingFile({ name: file.name, progress: 0 })
-
-    // Simulate progress animation
-    const progressInterval = setInterval(() => {
-      setUploadingFile(prev => {
-        if (!prev || prev.progress >= 90) return prev
-        return { ...prev, progress: prev.progress + 10 }
-      })
-    }, 500)
-
-    const formData = new FormData()
-    formData.append('file', file)
-
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0]; if (!file) return
+    setUploadingFile({ name: file.name })
+    const formData = new FormData(); formData.append('file', file)
     try {
-      const response = await fetch('http://localhost:8000/upload', {
+      const res = await fetch('http://localhost:8000/upload', {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       })
-
-      clearInterval(progressInterval)
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: `Server error: ${response.status}` }))
-        throw new Error(errorData.detail || `Server error: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      // Complete progress
-      setUploadingFile({ name: file.name, progress: 100 })
-
-      // Short delay before showing as completed source
-      setTimeout(() => {
-        if (data.status !== 'already_exists') {
-          setSources(prev => [...prev, { name: file.name, type: file.name.split('.').pop().toUpperCase() }])
-        }
-
-        let msgText = ''
-        if (data.status === 'processing_started') {
-          msgText = `✅ **${data.message}**\n\nThe parsed content will be available for querying shortly.`
-        } else if (data.status === 'already_exists') {
-          msgText = `ℹ️ ${data.message}`
-        } else {
-          msgText = `✅ ${data.message} (${data.chunks} chunks created)`
-        }
-
-        setMessages(prev => [...prev, {
-          type: 'ai',
-          text: msgText,
-          sources: []
-        }])
-        setUploadingFile(null)
-      }, 500)
-
-    } catch (error) {
-      clearInterval(progressInterval)
-      setUploadingFile(null)
-      setMessages(prev => [...prev, {
-        type: 'ai',
-        text: `❌ Upload failed: ${error.message}`,
-        sources: []
-      }])
-      console.error('Upload error:', error)
-    } finally {
-      // Reset file input
-      event.target.value = ''
-    }
+      if (res.ok) fetchSources()
+    } catch (error) { console.error(error) } finally { setUploadingFile(null) }
   }
 
-  const handleDeleteSource = async (filename) => {
-    const confirmed = window.confirm(`Are you sure you want to delete "${filename}"? This will remove it from the database and the filesystem.`)
-
-    if (!confirmed) return
-
-    try {
-      const response = await fetch(`http://localhost:8000/documents/${encodeURIComponent(filename)}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        setSources(prev => prev.filter(s => s.name !== filename))
-        setMessages(prev => [...prev, {
-          type: 'ai',
-          text: `🗑️ Successfully deleted "${filename}" from the system.`,
-          sources: []
-        }])
-      } else {
-        const data = await response.json()
-        alert(`Failed to delete: ${data.detail || 'Unknown error'}`)
-      }
-    } catch (error) {
-      console.error('Delete error:', error)
-      alert('Error connecting to backend during deletion.')
-    }
+  if (!token) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-logo">ContextIQ</div>
+          <p className="auth-subtitle">Elevate your intelligence</p>
+          {authError && <div className={`auth-message ${authError.includes('successful') ? 'success' : 'error'}`}>{authError}</div>}
+          <input type="email" placeholder="Email" className="auth-input" id="authEmail" />
+          <input type="password" placeholder="Password" className="auth-input" id="authPass" />
+          <button className="auth-submit" onClick={() => handleAuth(document.getElementById('authEmail').value, document.getElementById('authPass').value)}>
+            {authMode === 'login' ? 'Sign In' : 'Create Account'}
+          </button>
+          <div className="auth-switch" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}>
+            {authMode === 'login' ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="app-container">
-      <div className="sidebar">
-        <button className="audio-guide-btn">
-          CALDIM
-        </button>
+    <div className={`app-container ${sidebarOpen ? 'sidebar-open' : ''}`}>
+      {deleteModal.show && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3>Confirm Deletion</h3>
+            <p>Are you sure you want to delete <strong>{deleteModal.name}</strong>?</p>
+            <div className="modal-actions">
+              <button className="cancel-btn" onClick={() => setDeleteModal({ ...deleteModal, show: false })}>Cancel</button>
+              <button className="confirm-btn" onClick={confirmDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-        <div className="sidebar-title">
-          <span>Sources</span>
-          <button onClick={() => fileInputRef.current.click()} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>+</button>
+      {/* Mobile Sidebar Overlay */}
+      <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)}></div>
+
+      <div className={`sidebar ${sidebarOpen ? 'visible' : ''}`}>
+        <div className="sidebar-header">
+          <div className="sidebar-title" onClick={() => { setViewMode('chat'); setSidebarOpen(false); }} style={{ cursor: 'pointer' }}>ContextIQ</div>
+          <button className="mobile-close-btn" onClick={() => setSidebarOpen(false)}>✕</button>
+        </div>
+        
+        <div className="sidebar-section">
+          <div className="sidebar-section-header"><span>Sources</span></div>
+          <button className="manage-sources-btn" onClick={() => { setViewMode('sources'); if (window.innerWidth < 768) setSidebarOpen(false); }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            Manage Sources
+          </button>
         </div>
 
-        <div className="source-list premium-scroll">
-          {sources.map((source, i) => (
-            <div key={i} className="source-item">
-              <div className="source-icon">{source.type}</div>
-              <span className="source-name" title={source.name}>{source.name}</span>
-              <div className="source-actions">
-                <button
-                  className="delete-source-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteSource(source.name);
-                  }}
-                  title="Delete source"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    <line x1="10" y1="11" x2="10" y2="17"></line>
-                    <line x1="14" y1="11" x2="14" y2="17"></line>
-                  </svg>
-                </button>
+        <div className="sidebar-section history-section">
+          <div className="sidebar-section-header">
+            <span>Recent Chats</span>
+            <button className="add-btn" onClick={handleNewChat}>+</button>
+          </div>
+          <div className="history-list premium-scroll">
+            {chats.map(c => (
+              <div key={c.id} className={`history-item ${activeChat?.id === c.id && viewMode === 'chat' ? 'active' : ''}`} onClick={() => selectChat(c)}>
+                <div className="history-title">{c.title}</div>
+                <button className="delete-btn" onClick={(e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'chat', id: c.id, name: c.title }) }}>🗑️</button>
               </div>
-            </div>
-          ))}
-          {uploadingFile && (
-            <div className="source-item uploading">
-              <div className="source-icon">...</div>
-              <div className="upload-info">
-                <span className="source-name">{uploadingFile.name}</span>
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${uploadingFile.progress}%` }}
-                  />
-                </div>
-                <span className="progress-text">{uploadingFile.progress}%</span>
-              </div>
-            </div>
-          )}
-
-          {sources.length === 0 && !uploadingFile && <p style={{ color: '#9aa0a6', fontSize: '0.9rem' }}>No sources yet.</p>}
+            ))}
+          </div>
         </div>
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          style={{ display: 'none' }}
-          onChange={handleFileUpload}
-          accept=".pdf,.txt"
-        />
+        <div className="user-profile-section">
+          <div className="user-avatar">{userEmail?.charAt(0).toUpperCase()}</div>
+          <div className="user-details">
+            <div className="user-name-display">{userEmail?.split('@')[0]}</div>
+            <button className="signout-link" onClick={handleLogout}>Sign out</button>
+          </div>
+        </div>
+        <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
       </div>
 
       <div className="main-content">
         <header className="header">
-          <div className="logo">Noteboolm</div>
-          <div className="user-profile">👤</div>
+          <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div className="chat-title">
+            {viewMode === 'sources' ? 'Manage Sources' : (activeChat ? activeChat.title : 'ContextIQ')}
+          </div>
         </header>
 
-        <div className="chat-area premium-scroll">
-          {messages.map((msg, i) => (
-            <div key={i} className={`message ${msg.type === 'user' ? 'user-message' : 'ai-message'}`}>
-              <div className="msg-content markdown-body">
-                {msg.type === 'ai' ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {msg.text}
-                  </ReactMarkdown>
-                ) : (
-                  msg.text
-                )}
-              </div>
-              {/* {msg.sources && msg.sources.length > 0 && (
-                <div className="sources-container">
-                  {msg.sources.map((s, si) => (
-                    <span key={si} className="source-badge">{s}</span>
-                  ))}
-                </div>
-              )} */}
+        {viewMode === 'sources' ? (
+          <div className="sources-view-container premium-scroll">
+            <div className="sources-grid-header">
+              <h2>Your Documents</h2>
+              <button className="primary-upload-btn" onClick={() => fileInputRef.current.click()}>+ Upload</button>
             </div>
-          ))}
-          {loading && <div className="message ai-message">Thinking...</div>}
-          <div ref={chatEndRef} />
-        </div>
-
-        <div className="input-container">
-          <div className="input-wrapper">
-            <input
-              type="text"
-              className="chat-input"
-              placeholder="Ask a question about your documents..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            />
-            <button className="action-btn" onClick={handleSend} disabled={loading}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            </button>
+            <div className="sources-grid">
+              {sources.map((s, i) => (
+                <div key={i} className="large-source-card">
+                  <div className="source-card-icon">📄</div>
+                  <div className="source-card-body">
+                    <div className="source-card-name" title={s.name}>{s.name}</div>
+                    <div className="source-card-meta">PDF Document</div>
+                  </div>
+                  <button className="card-delete-btn" onClick={() => setDeleteModal({ show: true, type: 'source', name: s.name })}>🗑️</button>
+                </div>
+              ))}
+              {uploadingFile && <div className="large-source-card uploading"><div className="source-card-icon loading-spin">⏳</div><div className="source-card-body"><div className="source-card-name">Uploading...</div></div></div>}
+              {sources.length === 0 && !uploadingFile && <div className="empty-sources"><p>No documents yet.</p></div>}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="chat-container">
+            <div className="chat-area premium-scroll">
+              {messages.map((m, i) => (
+                <div key={i} className={`message ${m.type === 'user' ? 'user-message' : 'ai-message'}`}>
+                  <div className="msg-bubble">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                  </div>
+                </div>
+              ))}
+              {loading && <div className="message ai-message"><div className="msg-bubble"><div className="typing-dots"><span></span><span></span><span></span></div></div></div>}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="input-container">
+              <div className="input-pill">
+                <input type="text" className="chat-input" placeholder="Ask anything..." value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSend()} disabled={!activeChat} />
+                <button className="send-btn" onClick={handleSend} disabled={!activeChat || loading}><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

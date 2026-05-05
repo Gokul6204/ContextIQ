@@ -1,7 +1,6 @@
-from langchain_postgres import PGVector
-# from langchain_huggingface import HuggingFaceEmbeddings
-# from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+import chromadb
 from langchain_core.documents import Document
 from typing import List
 import os
@@ -28,67 +27,90 @@ class RAGService:
             encode_kwargs={"normalize_embeddings": True},
         )
 
-        # Supabase connection string
-        self.connection_string = os.getenv("DATABASE_URL")
+        # Chroma Cloud credentials
+        self.chroma_api_key = os.getenv("CHROMA_API_KEY")
+        self.chroma_tenant = os.getenv("CHROMA_TENANT")
+        self.chroma_database = os.getenv("CHROMA_DATABASE")
         
-        # Clean the connection string if it has the +psycopg prefix which some drivers don't like
-        # but langchain-postgres (which uses sqlalchemy) usually likes it.
-        # However, let's ensure it's valid.
-        if not self.connection_string:
-            logger.error("DATABASE_URL not found in environment variables!")
-            self.vector_db = None
-            return
+        # Paths for local fallback
+        self.persist_directory = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "chroma_db")
+        os.makedirs(self.persist_directory, exist_ok=True)
 
-        logger.info(f"Connecting to Supabase (Production Mode)...")
+        logger.info("Initializing ContextIQ Vector Engine...")
         
+        # Try Cloud First
+        if self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
+            try:
+                logger.info(f"Connecting to Chroma Cloud (Database: {self.chroma_database})...")
+                client = chromadb.CloudClient(
+                    api_key=self.chroma_api_key,
+                    tenant=self.chroma_tenant,
+                    database=self.chroma_database
+                )
+                self.vector_db = Chroma(
+                    client=client,
+                    collection_name="contextiq_v1",
+                    embedding_function=self.embeddings
+                )
+                logger.info("Successfully connected to Chroma Cloud.")
+                return
+            except Exception as e:
+                logger.warning(f"Chroma Cloud connection failed: {e}. Falling back to Local Engine.")
+        
+        # Fallback to Local
         try:
-            # Initialize PGVector
-            # collection_name will be the table name prefix in Supabase
-            self.vector_db = PGVector(
-                connection=self.connection_string,
-                collection_name="noteboolm_v1",
-                embeddings=self.embeddings,
-                use_jsonb=True
+            logger.info(f"Initializing Local Chroma Engine at: {self.persist_directory}")
+            self.vector_db = Chroma(
+                persist_directory=self.persist_directory,
+                collection_name="contextiq_v1",
+                embedding_function=self.embeddings
             )
-            logger.info("PGVector connected and initialized successfully.")
+            logger.info("Local Chroma Engine initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize PGVector: {str(e)}", exc_info=True)
+            logger.error(f"Critical Failure: Could not initialize any Vector Engine: {str(e)}", exc_info=True)
             self.vector_db = None
 
-    def add_documents(self, documents: List[Document]):
-        """Add documents to the vector store with error handling"""
+    def add_documents(self, documents: List[Document], user_id: int):
+        """Add documents to the vector store with user isolation"""
         if not documents:
             logger.warning("No documents to add.")
             return
         
+        # Add user_id to metadata for each document
+        for doc in documents:
+            doc.metadata["user_id"] = user_id
+        
         if self.vector_db is None:
             logger.error("Cannot add documents: Vector DB is not initialized.")
-            return
+            raise Exception("ContextIQ Vector Engine is currently offline or uninitialized.")
 
-        logger.info(f"Adding {len(documents)} chunks to Supabase...")
+        logger.info(f"Adding {len(documents)} chunks to Chroma...")
         try:
-            # PGVector's add_documents correctly handles table creation and insertion
             self.vector_db.add_documents(documents)
-            logger.info("Successfully added documents to Supabase.")
+            logger.info("Successfully added documents to Chroma.")
         except Exception as e:
-            logger.error(f"Error adding documents to Supabase: {str(e)}", exc_info=True)
+            logger.error(f"Error adding documents to Chroma: {str(e)}", exc_info=True)
 
-    def delete_document(self, file_path: str):
-        """Delete all vectors associated with a specific file path from Supabase"""
+    def delete_document(self, file_path: str, user_id: int):
+        """Delete all vectors associated with a specific file and user"""
         if self.vector_db is None:
             return False
             
         try:
-            logger.info(f"Cleaning up vector store for: {file_path}")
+            logger.info(f"Purging vectors for user {user_id} file: {file_path}")
             
-            # Use .get() to find IDs by metadata and delete them
-            # This is the most reliable way in modern langchain-vectorstores
+            # Use .get() with metadata filter to find IDs
             try:
-                # Search for documents with the given source
-                results = self.vector_db.get(where={"source": file_path})
+                # Search for documents with the given source AND user_id
+                results = self.vector_db.get(where={
+                    "$and": [
+                        {"source": {"$eq": file_path}},
+                        {"user_id": {"$eq": user_id}}
+                    ]
+                })
                 if results and results.get('ids'):
                     ids_to_delete = results['ids']
-                    logger.info(f"Deleting {len(ids_to_delete)} chunks from Supabase.")
+                    logger.info(f"Deleting {len(ids_to_delete)} chunks from Chroma.")
                     self.vector_db.delete(ids=ids_to_delete)
                     return True
                 else:
@@ -98,19 +120,24 @@ class RAGService:
                 
             return False
         except Exception as e:
-            logger.error(f"Error during deletion from Supabase: {str(e)}")
+            logger.error(f"Error during deletion from Chroma: {str(e)}")
             return False
 
-    def query(self, query_text: str, k: int = 5) -> List[Document]:
-        """Query the vector store for relevant chunks"""
+    def query(self, query_text: str, user_id: int, k: int = 5) -> List[Document]:
+        """Query the vector store with user-level isolation"""
         if self.vector_db is None:
             logger.warning("Query attempted but vector_db is not initialized.")
-            return []
+            raise Exception("ContextIQ Vector Engine is currently offline or uninitialized.")
             
         try:
-            return self.vector_db.similarity_search(query_text, k=k)
+            # Filter results to ONLY include documents belonging to this user
+            return self.vector_db.similarity_search(
+                query_text, 
+                k=k,
+                filter={"user_id": user_id}
+            )
         except Exception as e:
-            logger.error(f"Error during Supabase query: {str(e)}")
+            logger.error(f"Error during Chroma query for user {user_id}: {str(e)}")
             return []
 
     def get_retriever(self, k: int = 5):

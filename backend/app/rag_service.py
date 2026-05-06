@@ -37,10 +37,10 @@ class RAGService:
                 from langchain_community.embeddings import OllamaEmbeddings
                 import httpx
                 
-                # Check if Ollama is even reachable with a 1-second timeout
+                # Check if Ollama is even reachable with a 5-second timeout
                 with httpx.Client() as client:
                     try:
-                        client.get("http://localhost:11434", timeout=1.0)
+                        client.get("http://localhost:11434", timeout=5.0)
                         logger.info("Ollama is reachable. Initializing embeddings...")
                         self._embeddings = OllamaEmbeddings(model="all-minilm")
                         return self._embeddings
@@ -78,10 +78,14 @@ class RAGService:
     def vector_db(self):
         if self._vector_db is None:
             from langchain_chroma import Chroma
-            # Try Cloud First
-            if self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
+            
+            # Use Local Chroma by default if running locally (not on Render)
+            # This makes local development MUCH faster
+            is_render = os.getenv("RENDER") is not None
+            
+            if is_render and self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
                 try:
-                    logger.info(f"Connecting to Chroma Cloud...")
+                    logger.info(f"🌐 Connecting to Chroma Cloud...")
                     client = chromadb.CloudClient(
                         api_key=self.chroma_api_key,
                         tenant=self.chroma_tenant,
@@ -92,21 +96,21 @@ class RAGService:
                         collection_name="contextiq_v1",
                         embedding_function=self.embeddings
                     )
-                    logger.info("  Connected to Chroma Cloud.")
+                    logger.info("✅ Connected to Chroma Cloud.")
                 except Exception as e:
-                    logger.warning(f"Chroma Cloud connection failed: {e}. Falling back to Local.")
+                    logger.warning(f"⚠️ Chroma Cloud connection failed: {e}. Falling back to Local.")
             
             if self._vector_db is None:
                 try:
-                    logger.info(f"Initializing Local Chroma at: {self.persist_directory}")
+                    logger.info(f"🏠 Initializing Local Chroma at: {self.persist_directory}")
                     self._vector_db = Chroma(
                         persist_directory=self.persist_directory,
                         collection_name="contextiq_v1",
                         embedding_function=self.embeddings
                     )
-                    logger.info("  Local Chroma initialized.")
+                    logger.info("✅ Local Chroma initialized.")
                 except Exception as e:
-                    logger.error(f"Critical Failure: {e}", exc_info=True)
+                    logger.error(f"❌ Critical Failure: {e}", exc_info=True)
         return self._vector_db
 
     def add_documents(self, documents: List[Document], user_id: int):

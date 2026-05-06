@@ -49,7 +49,7 @@ class RAGService:
                     from langchain_huggingface import HuggingFaceEndpointEmbeddings
                     logger.info("Initializing HuggingFace Inference API Embeddings...")
                     self._embeddings = HuggingFaceEndpointEmbeddings(
-                        model="BAAI/bge-small-en-v1.5",
+                        model="sentence-transformers/all-MiniLM-L6-v2",
                         huggingfacehub_api_token=self.hf_token
                     )
                     self._embeddings.embed_query("test")
@@ -63,7 +63,7 @@ class RAGService:
                     from langchain_huggingface import HuggingFaceEmbeddings
                     logger.info("Initializing local HuggingFace embeddings (Fallback)...")
                     self._embeddings = HuggingFaceEmbeddings(
-                        model_name="BAAI/bge-small-en-v1.5",
+                        model_name="sentence-transformers/all-MiniLM-L6-v2",
                         model_kwargs={"device": "cpu"},
                         encode_kwargs={"normalize_embeddings": True},
                     )

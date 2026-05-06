@@ -94,6 +94,8 @@ def process_and_index(file_path: str, filename: str, user_id: int):
             logger.info(f"📁 Using local file for processing: {file_path}")
             working_path = file_path
 
+        # --- STEP 1: PARSING ---
+        logger.info(f"Parsing document: {filename}...")
         filename_lower = filename.lower()
         if filename_lower.endswith(".pdf"):
             docs = doc_service.process_pdf(working_path)
@@ -112,21 +114,21 @@ def process_and_index(file_path: str, filename: str, user_id: int):
             logger.warning(f"⚠️ Document {filename} resulted in 0 chunks. Parsing might have failed.")
             return
 
-        logger.info(f"📄 Document {filename} processed into {num_chunks} chunks.")
+        logger.info(f"{filename} split into {num_chunks} chunks.")
         
-        # 1. Clean up any existing vectors
+        # --- STEP 2: VECTORIZING ---
+        # Clean up any existing vectors first
         rag_service.delete_document(filename, user_id)
         
-        # 2. Add to vector store
-        logger.info(f"📡 Sending {num_chunks} chunks to Chroma Cloud for {filename}...")
+        logger.info(f"Sending chunks to Chroma Cloud for {filename}...")
         rag_service.add_documents(docs, user_id)
         
-        # 3. Mark as indexed in DB
+        # --- STEP 3: FINALIZING ---
         db_doc = db.query(UserDocument).filter(UserDocument.user_id == user_id, UserDocument.filename == filename).first()
         if db_doc:
             db_doc.indexed = True
             db.commit()
-            logger.info(f"  Successfully indexed and updated DB for {filename}")
+            logger.info(f"SUCCESSFULLY INDEXED: {filename} is now ready for search.")
         
     except Exception as e:
         logger.error(f"  Error in background processing for {filename}: {str(e)}", exc_info=True)

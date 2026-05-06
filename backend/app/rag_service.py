@@ -31,46 +31,44 @@ class RAGService:
     @property
     def embeddings(self):
         if self._embeddings is None:
-            # Try Ollama First
+            # Try Ollama First (ONLY if not on Render/Live)
+            # Render doesn't have Ollama, so we check quickly
             try:
                 from langchain_community.embeddings import OllamaEmbeddings
-                logger.info("Checking for local Ollama Embedding Engine (all-minilm)...")
-                ollama = OllamaEmbeddings(model="all-minilm")
-                # ACTUAL CHECK: See if Ollama responds
-                ollama.embed_query("test") 
-                self._embeddings = ollama
-                logger.info("  Using Ollama for embeddings (all-minilm).")
-                return self._embeddings
+                import httpx
+                
+                # Check if Ollama is even reachable with a 1-second timeout
+                with httpx.Client() as client:
+                    try:
+                        client.get("http://localhost:11434", timeout=1.0)
+                        logger.info("Ollama is reachable. Initializing embeddings...")
+                        self._embeddings = OllamaEmbeddings(model="all-minilm")
+                        return self._embeddings
+                    except:
+                        logger.info("Ollama not reachable. Switching to Cloud Embeddings...")
             except Exception as e:
-                logger.info(f"Ollama check failed: {e}. Trying Hugging Face...")
+                logger.info(f"Ollama setup skipped: {e}")
 
+            # Cloud Fallback (Hugging Face Inference API)
             if self.hf_token:
                 try:
                     from langchain_huggingface import HuggingFaceEndpointEmbeddings
-                    logger.info("Initializing HuggingFace Inference API Embeddings...")
+                    logger.info("Connecting to HuggingFace Inference API (all-MiniLM-L6-v2)...")
                     self._embeddings = HuggingFaceEndpointEmbeddings(
                         model="sentence-transformers/all-MiniLM-L6-v2",
-                        huggingfacehub_api_token=self.hf_token
+                        huggingfacehub_api_token=self.hf_token,
+                        timeout=30 # Prevent indefinite hanging
                     )
-                    self._embeddings.embed_query("test")
-                    logger.info("  Using HuggingFace Inference API.")
+                    # Quick test
+                    self._embeddings.embed_query("health check")
+                    logger.info("Cloud Embeddings initialized successfully.")
                 except Exception as e:
-                    logger.warning(f"HuggingFace Inference API failed: {e}")
+                    logger.error(f"HuggingFace Inference API failed: {e}")
                     self._embeddings = None
             
             if self._embeddings is None:
-                try:
-                    from langchain_huggingface import HuggingFaceEmbeddings
-                    logger.info("Initializing local HuggingFace embeddings (Fallback)...")
-                    self._embeddings = HuggingFaceEmbeddings(
-                        model_name="sentence-transformers/all-MiniLM-L6-v2",
-                        model_kwargs={"device": "cpu"},
-                        encode_kwargs={"normalize_embeddings": True},
-                    )
-                    logger.info("  Using Local HuggingFace Embeddings.")
-                except Exception as e:
-                    logger.error(f"Failed to initialize any embedding engine: {e}")
-                    raise RuntimeError("No valid embedding engine found.")
+                logger.error("NO EMBEDDING ENGINE AVAILABLE. Indexing will fail.")
+                raise RuntimeError("No valid embedding engine found. Please check HF_TOKEN.")
         return self._embeddings
 
     @property

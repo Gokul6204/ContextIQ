@@ -27,8 +27,12 @@ Render is ideal for hosting the FastAPI backend.
    - `CHROMA_API_KEY`: Your Chroma Cloud API key.
    - `CHROMA_TENANT`: Your Chroma Tenant ID.
    - `CHROMA_DATABASE`: `GoogleNotebooklm`.
+   - `SUPABASE_URL`: Your Supabase Project URL.
+   - `SUPABASE_KEY`: Your Supabase Service Role Key (JWT).
+   - `SUPABASE_BUCKET`: `documents`.
+   - `HF_TOKEN`: Your Hugging Face token (for fallback embeddings).
    - `SECRET_KEY`: A long, random string for JWT security.
-   - `PYTHON_VERSION`: `3.10` (recommended).
+   - `PYTHON_VERSION`: `3.11`.
 
 3. **Deploy**: Render will automatically build and deploy your backend. Note down your backend URL (e.g., `https://contextiq-backend.onrender.com`).
 

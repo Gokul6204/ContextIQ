@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, JSON, create_engine
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, JSON, Boolean, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -32,6 +32,7 @@ class UserDocument(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
+    indexed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     owner = relationship("User", back_populates="documents")

@@ -46,3 +46,11 @@ __pycache__/
 # OS
 # -----------------------------
 Thumbs.db
+
+# -----------------------------
+# Project Specific
+# -----------------------------
+backend/data/
+backend/chroma_db/
+backend/*.log
+backend/app/__pycache__/

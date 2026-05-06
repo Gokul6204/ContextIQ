@@ -41,10 +41,10 @@ def check_db_connection():
         logger.info("Testing Database connection...")
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        logger.info("✅ Database connection successful.")
+        logger.info("  Database connection successful.")
         return True
     except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
+        logger.error(f"  Database connection failed: {e}")
         if "getaddrinfo failed" in str(e):
             logger.error("   TIP: This usually means your machine cannot resolve the database hostname.")
             logger.error("   Check your internet connection or DNS settings.")

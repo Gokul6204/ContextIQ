@@ -22,6 +22,7 @@ function App() {
   const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(null)
+  const [summarizing, setSummarizing] = useState(false)
   
   const [deleteModal, setDeleteModal] = useState({ show: false, type: '', id: null, name: '' })
 
@@ -38,6 +39,15 @@ function App() {
       fetchSources()
     }
   }, [token])
+
+  // Poll for document status if any are still indexing
+  useEffect(() => {
+    const hasUnindexed = sources.some(s => !s.indexed) || uploadingFile
+    if (hasUnindexed && token) {
+      const interval = setInterval(fetchSources, 5000)
+      return () => clearInterval(interval)
+    }
+  }, [sources, uploadingFile, token])
 
   const fetchChats = async () => {
     try {
@@ -203,6 +213,41 @@ function App() {
     } finally { setLoading(false) }
   }
 
+  const handleSummarize = async (filename) => {
+    if (summarizing) return
+    setSummarizing(true)
+    try {
+      const res = await fetch(`${API_BASE}/summary?file_name=${encodeURIComponent(filename)}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        // If we have an active chat, add the summary there. If not, create one.
+        let chatToUse = activeChat
+        if (!chatToUse) {
+          const chatRes = await fetch(`${API_BASE}/chats`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ title: `Summary: ${filename}` })
+          })
+          if (chatRes.ok) {
+            chatToUse = await chatRes.json()
+            setChats(prev => [chatToUse, ...prev])
+            setActiveChat(chatToUse)
+          }
+        }
+        
+        setMessages(prev => [...prev, { type: 'ai', text: `### 📄 Summary of ${filename}\n\n${data.summary}` }])
+        setViewMode('chat')
+      } else {
+        alert("Failed to generate summary. Make sure the document is fully indexed.")
+      }
+    } catch (error) { 
+      console.error(error)
+    } finally { setSummarizing(false) }
+  }
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]; if (!file) return
     setUploadingFile({ name: file.name })
@@ -315,9 +360,14 @@ function App() {
                   <div className="source-card-icon">📄</div>
                   <div className="source-card-body">
                     <div className="source-card-name" title={s.name}>{s.name}</div>
-                    <div className="source-card-meta">PDF Document</div>
+                    <div className="source-card-meta">{s.indexed ? 'PDF Document' : '⚙️ Indexing...'}</div>
                   </div>
-                  <button className="card-delete-btn" onClick={() => setDeleteModal({ show: true, type: 'source', name: s.name })}>🗑️</button>
+                  <div className="source-card-actions">
+                    <button className="card-summarize-btn" title="Summarize" onClick={() => handleSummarize(s.name)} disabled={summarizing || !s.indexed}>
+                      {summarizing ? '...' : '✨'}
+                    </button>
+                    <button className="card-delete-btn" title="Delete" onClick={() => setDeleteModal({ show: true, type: 'source', name: s.name })}>🗑️</button>
+                  </div>
                 </div>
               ))}
               {uploadingFile && <div className="large-source-card uploading"><div className="source-card-icon loading-spin">⏳</div><div className="source-card-body"><div className="source-card-name">Uploading...</div></div></div>}

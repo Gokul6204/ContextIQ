@@ -1,59 +1,36 @@
-# fastapi
-# uvicorn
-# langchain
-# langchain-community
-# langchain-huggingface
-# langchain-postgres
-# chromadb==0.5.5
-
-# pypdf
-# pymupdf
-
-# python-multipart
-# python-dotenv
-# PyYAML==6.0.1
-
-# groq
-# langchain-groq
-
-# psycopg[binary]
-# pgvector
-
 fastapi
 uvicorn
+uvicorn[standard]
+gunicorn
 
-langchain==0.2.17
-langchain-community==0.2.19
-langchain-core==0.2.43
-langchain-groq==0.1.10
-langchain-postgres
-
-chromadb==0.5.5
+# LangChain & AI
+langchain==0.3.1
+langchain-community==0.3.1
+langchain-core==0.3.1
+langchain-groq==0.2.0
 langchain-chroma
+langchain-huggingface
+langchain-ollama
+groq
+huggingface_hub
 
+# Vector DB & Storage
+chromadb==0.5.5
+supabase
+postgrest
+
+# Document Processing
 pypdf
 pymupdf
+docx2txt
 
+# Database & Auth
+sqlalchemy
+psycopg[binary]
+pgvector
+passlib[bcrypt]
+bcrypt
+python-jose[cryptography]
 python-multipart
 python-dotenv
 PyYAML==6.0.1
-
-groq
-
-psycopg[binary]
-pgvector
-
-langchain-huggingface
-huggingface_hub
-
-huggingface_hub==0.23.5
-
-sentence-transformers
-torch
-docx2txt
-sqlalchemy
-passlib[bcrypt]
-gunicorn
-uvicorn[standard]
-python-jose[cryptography]
-bcrypt

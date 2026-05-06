@@ -7,8 +7,8 @@ from typing import List
 class DocumentService:
     def __init__(self):
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1200,
-            chunk_overlap=250,
+            chunk_size=800,
+            chunk_overlap=150,
             add_start_index=True
         )
 

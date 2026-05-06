@@ -1,5 +1,6 @@
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+# Removed top-level HuggingFaceEmbeddings to save memory/disk space on Render
+
 import chromadb
 from langchain_core.documents import Document
 from typing import List
@@ -30,33 +31,56 @@ class RAGService:
     @property
     def embeddings(self):
         if self._embeddings is None:
+            # Try Ollama First
+            try:
+                from langchain_community.embeddings import OllamaEmbeddings
+                logger.info("Checking for local Ollama Embedding Engine (all-minilm)...")
+                ollama = OllamaEmbeddings(model="all-minilm")
+                # ACTUAL CHECK: See if Ollama responds
+                ollama.embed_query("test") 
+                self._embeddings = ollama
+                logger.info("  Using Ollama for embeddings (all-minilm).")
+                return self._embeddings
+            except Exception as e:
+                logger.info(f"Ollama check failed: {e}. Trying Hugging Face...")
+
             if self.hf_token:
-                from langchain_huggingface import HuggingFaceEndpointEmbeddings
-                logger.info("Initializing HuggingFace Inference API Embeddings...")
-                self._embeddings = HuggingFaceEndpointEmbeddings(
-                    model="BAAI/bge-small-en-v1.5",
-                    huggingfacehub_api_token=self.hf_token
-                )
-            else:
-                from langchain_huggingface import HuggingFaceEmbeddings
-                logger.info("Lazily initializing local HuggingFace embeddings (No HF_TOKEN found)...")
-                self._embeddings = HuggingFaceEmbeddings(
-                    model_name="BAAI/bge-small-en-v1.5",
-                    model_kwargs={"device": "cpu"},
-                    encode_kwargs={"normalize_embeddings": True},
-                )
+                try:
+                    from langchain_huggingface import HuggingFaceEndpointEmbeddings
+                    logger.info("Initializing HuggingFace Inference API Embeddings...")
+                    self._embeddings = HuggingFaceEndpointEmbeddings(
+                        model="BAAI/bge-small-en-v1.5",
+                        huggingfacehub_api_token=self.hf_token
+                    )
+                    self._embeddings.embed_query("test")
+                    logger.info("  Using HuggingFace Inference API.")
+                except Exception as e:
+                    logger.warning(f"HuggingFace Inference API failed: {e}")
+                    self._embeddings = None
+            
+            if self._embeddings is None:
+                try:
+                    from langchain_huggingface import HuggingFaceEmbeddings
+                    logger.info("Initializing local HuggingFace embeddings (Fallback)...")
+                    self._embeddings = HuggingFaceEmbeddings(
+                        model_name="BAAI/bge-small-en-v1.5",
+                        model_kwargs={"device": "cpu"},
+                        encode_kwargs={"normalize_embeddings": True},
+                    )
+                    logger.info("  Using Local HuggingFace Embeddings.")
+                except Exception as e:
+                    logger.error(f"Failed to initialize any embedding engine: {e}")
+                    raise RuntimeError("No valid embedding engine found.")
         return self._embeddings
 
     @property
     def vector_db(self):
         if self._vector_db is None:
             from langchain_chroma import Chroma
-            logger.info("Lazily initializing ContextIQ Vector Engine...")
-            
             # Try Cloud First
             if self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
                 try:
-                    logger.info(f"Connecting to Chroma Cloud (Database: {self.chroma_database})...")
+                    logger.info(f"Connecting to Chroma Cloud...")
                     client = chromadb.CloudClient(
                         api_key=self.chroma_api_key,
                         tenant=self.chroma_tenant,
@@ -67,22 +91,21 @@ class RAGService:
                         collection_name="contextiq_v1",
                         embedding_function=self.embeddings
                     )
-                    logger.info("Successfully connected to Chroma Cloud.")
+                    logger.info("  Connected to Chroma Cloud.")
                 except Exception as e:
-                    logger.warning(f"Chroma Cloud connection failed: {e}. Falling back to Local Engine.")
+                    logger.warning(f"Chroma Cloud connection failed: {e}. Falling back to Local.")
             
             if self._vector_db is None:
-                # Fallback to Local
                 try:
-                    logger.info(f"Initializing Local Chroma Engine at: {self.persist_directory}")
+                    logger.info(f"Initializing Local Chroma at: {self.persist_directory}")
                     self._vector_db = Chroma(
                         persist_directory=self.persist_directory,
                         collection_name="contextiq_v1",
                         embedding_function=self.embeddings
                     )
-                    logger.info("Local Chroma Engine initialized successfully.")
+                    logger.info("  Local Chroma initialized.")
                 except Exception as e:
-                    logger.error(f"Critical Failure: Could not initialize any Vector Engine: {str(e)}", exc_info=True)
+                    logger.error(f"Critical Failure: {e}", exc_info=True)
         return self._vector_db
 
     def add_documents(self, documents: List[Document], user_id: int):
@@ -91,20 +114,26 @@ class RAGService:
             logger.warning("No documents to add.")
             return
         
-        # Add user_id to metadata for each document
+        filename = "unknown"
         for doc in documents:
             doc.metadata["user_id"] = user_id
+            if "source" in doc.metadata:
+                # Store only the filename in metadata for portability
+                fn = os.path.basename(doc.metadata["source"])
+                doc.metadata["source"] = fn
+                filename = fn
+        
+        logger.info(f"Indexing {len(documents)} chunks for file: {filename} (User: {user_id})")
         
         if self.vector_db is None:
-            logger.error("Cannot add documents: Vector DB is not initialized.")
-            raise Exception("ContextIQ Vector Engine is currently offline or uninitialized.")
+            raise Exception("Vector Engine is offline.")
 
-        logger.info(f"Adding {len(documents)} chunks to Chroma...")
         try:
             self.vector_db.add_documents(documents)
-            logger.info("Successfully added documents to Chroma.")
+            logger.info(f"  Successfully indexed {filename} in Chroma.")
         except Exception as e:
-            logger.error(f"Error adding documents to Chroma: {str(e)}", exc_info=True)
+            logger.error(f"  Failed to add documents to Chroma: {e}", exc_info=True)
+            raise
 
     def delete_document(self, file_path: str, user_id: int):
         """Delete all vectors associated with a specific file and user"""
@@ -112,27 +141,28 @@ class RAGService:
             return False
             
         try:
-            logger.info(f"Purging vectors for user {user_id} file: {file_path}")
+            filename = os.path.basename(file_path)
+            logger.info(f"Purging existing vectors for: {filename} (User: {user_id})")
             
-            # Use .get() with metadata filter to find IDs
-            try:
-                # Search for documents with the given source AND user_id
-                results = self.vector_db.get(where={
-                    "$and": [
-                        {"source": {"$eq": file_path}},
-                        {"user_id": {"$eq": user_id}}
-                    ]
-                })
-                if results and results.get('ids'):
-                    ids_to_delete = results['ids']
-                    logger.info(f"Deleting {len(ids_to_delete)} chunks from Chroma.")
-                    self.vector_db.delete(ids=ids_to_delete)
-                    return True
-                else:
-                    logger.warning(f"No documents found for source: {file_path}")
-            except Exception as e:
-                logger.error(f"Error during .get() and delete: {e}")
-                
+            # Robust search: Try both filename AND full path (for legacy cleanup)
+            # Use .get() to find IDs
+            results = self.vector_db.get(where={
+                "$and": [
+                    {"user_id": {"$eq": user_id}},
+                    {"$or": [
+                        {"source": {"$eq": filename}},
+                        {"source": {"$eq": file_path}}
+                    ]}
+                ]
+            })
+            
+            if results and results.get('ids'):
+                ids_to_delete = results['ids']
+                logger.info(f"Deleting {len(ids_to_delete)} existing chunks.")
+                self.vector_db.delete(ids=ids_to_delete)
+                return True
+            
+            logger.info(f"No existing vectors found for {filename}. Clean start.")
             return False
         except Exception as e:
             logger.error(f"Error during deletion from Chroma: {str(e)}")

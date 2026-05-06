@@ -49,19 +49,21 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                   RAGService.add_documents()                     │
 │                                                                  │
-│  LOG: "Adding {N} documents to vector database"                 │
+│  LOG: "Adding {N} documents to Chroma Cloud"                    │
 │                                                                  │
-│  1. Generate embeddings (Ollama)                                │
+│  1. Generate embeddings (Ollama / Fallback)                      │
 │     ┌─────────────────────────────────────────────────┐        │
-│     │      OllamaEmbeddings                            │        │
-│     │      model: "nomic-embed-text"                   │        │
+│     │      OllamaEmbeddings / HF Fallback              │        │
+│     │      model: "all-minilm"                         │        │
 │     │                                                  │        │
 │     │  For each chunk:                                │        │
-│     │    text → embedding vector (768 dimensions)     │        │
+│     │    text → embedding vector (384 dimensions)     │        │
 │     └─────────────────────────────────────────────────┘        │
 │                                                                  │
-│  2. Store in FAISS vector database                              │
-│     LOG: "Creating new FAISS index" (first time)                │
+│  2. Store in Chroma Cloud                                       │
+│     LOG: "Connecting to Chroma Cloud collection"                │
+│     LOG: "Successfully indexed {filename} in Chroma"            │
+└─────────────────────────────────────────────────────────────────┘
 │     OR                                                           │
 │     LOG: "Adding to existing FAISS index"                       │
 │                                                                  │
@@ -108,9 +110,9 @@
 │                                                                  │
 │  1. RAGService.query(prompt)                                    │
 │     ┌─────────────────────────────────────────────────┐        │
-│     │  FAISS similarity search                         │        │
+│     │  Chroma Cloud similarity search                  │        │
 │     │  - Convert query to embedding                    │        │
-│     │  - Find top 7 most similar chunks                │        │
+│     │  - Find top 10 most similar chunks               │        │
 │     │  - Return List[Document]                         │        │
 │     └─────────────────────────────────────────────────┘        │
 │                                                                  │
@@ -119,7 +121,7 @@
 │                                                                  │
 │  3. LLMService.generate_response(prompt, context)               │
 │     ┌─────────────────────────────────────────────────┐        │
-│     │  Ollama LLM (llama3)                             │        │
+│     │  Groq LLM (Llama-3)                              │        │
 │     │                                                  │        │
 │     │  Prompt Template:                                │        │
 │     │  "You are an AI research assistant...           │        │
@@ -148,27 +150,36 @@
 ## Key Components
 
 ### 1. Document Processing
-- **PyMuPDFLoader**: Extracts text from PDF pages
-- **RecursiveCharacterTextSplitter**: Splits into manageable chunks
-  - Preserves context with overlap
-  - Ensures chunks fit in embedding model
+1. **Upload Phase**:
+   - User uploads file via Frontend.
+   - Backend saves file to **Supabase Storage** (Bucket: `documents`).
+   - Metadata is recorded in **Supabase Postgres**.
+
+2.  **Indexing Phase (Background)**:
+   - Worker downloads file from Supabase.
+   - Text is extracted and chunked (800 chars).
+   - Embeddings generated via **Ollama** (`all-minilm`).
+   - Vectors stored in **Chroma Cloud**.
+   - DB record marked as `indexed = True`.
+
+3.  **Query Phase**:
+   - User sends message.
+   - Query embedded and searched in **Chroma Cloud**.
+   - Context + Message sent to **Groq LLM** (Llama-3).
 
 ### 2. Embeddings
-- **Model**: nomic-embed-text (via Ollama)
+- **Model**: all-minilm (via Ollama)
 - **Purpose**: Convert text to vector representations
-- **Dimension**: 768-dimensional vectors
-- **Usage**: Both for indexing and querying
-
+- **Dimension**: 384-dimensional
 ### 3. Vector Storage
-- **FAISS**: Facebook AI Similarity Search
-- **Type**: In-memory with disk persistence
-- **Index Type**: Flat (exact search)
-- **Persistence**: Saved to `backend/faiss_index/`
+- **Chroma Cloud**: Hosted vector database
+- **Collection**: `contextiq_v1`
+- **Purpose**: High-dimensional vector search for context retrieval
 
 ### 4. LLM
-- **Model**: llama3 (via Ollama)
+- **Model**: Llama-3 (via Groq Cloud)
 - **Temperature**: 0.1 (low for factual responses)
-- **Max tokens**: 500
+- **Max tokens**: 2048
 - **Purpose**: Generate answers based on context
 
 ## Error Handling
@@ -178,7 +189,7 @@
 2. **Unsupported file type** → HTTP 400 "Please upload PDF or TXT"
 3. **PDF processing fails** → HTTP 500 with PyMuPDF error
 4. **Embedding fails** → HTTP 500 with Ollama error
-5. **FAISS save fails** → HTTP 500 with file system error
+5. **Chroma save fails** → HTTP 500 with Cloud API error
 
 All errors are:
 - Logged to backend console with stack traces
@@ -187,8 +198,8 @@ All errors are:
 
 ### Query Errors
 1. **No documents indexed** → Returns empty context
-2. **Ollama not running** → Connection error
-3. **Model not found** → Model loading error
+2. **Groq API Down** → Connection error fallback
+3. **Ollama not running** → Connection error (for embeddings)
 
 ## Logging Levels
 
@@ -215,14 +226,8 @@ E:\GoogleNoteboolm\
 │   │   ├── main.py              # FastAPI endpoints
 │   │   ├── document_service.py  # PDF/text processing
 │   │   ├── rag_service.py       # Vector DB operations
-│   │   └── llm_service.py       # LLM interactions
-│   ├── data/
-│   │   └── uploads/             # Uploaded PDFs stored here
-│   │       ├── knowledge.pdf
-│   │       └── ...
-│   ├── faiss_index/             # Vector DB persisted here
-│   │   ├── index.faiss
-│   │   └── index.pkl
+│   │   ├── llm_service.py       # LLM interactions
+│   │   └── storage_service.py   # Supabase Storage logic
 │   └── requirements.txt
 ├── frontend/
 │   └── src/

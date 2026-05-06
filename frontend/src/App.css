@@ -139,7 +139,18 @@ body {
 .sources-view-container { flex-grow: 1; padding: 24px; overflow-y: auto; background: #f8f9fa; }
 .sources-grid-header { max-width: 1000px; margin: 0 auto 24px; display: flex; justify-content: space-between; align-items: center; }
 .sources-grid { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-.large-source-card { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px; }
+.large-source-card { background: #fff; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px; transition: box-shadow 0.2s ease; }
+.large-source-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.source-card-icon { font-size: 1.5rem; flex-shrink: 0; }
+.source-card-body { flex-grow: 1; min-width: 0; }
+.source-card-name { font-weight: 500; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source-card-meta { font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; }
+.source-card-actions { display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s ease; }
+.large-source-card:hover .source-card-actions { opacity: 1; }
+.card-summarize-btn, .card-delete-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; padding: 4px; border-radius: 4px; transition: background 0.2s; }
+.card-summarize-btn:hover { background: #e8f0fe; }
+.card-delete-btn:hover { background: #fce8e6; }
+.large-source-card.uploading { border-style: dashed; background: #fafafa; }
 
 /* Primary Upload Button */
 .primary-upload-btn {

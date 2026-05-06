@@ -50,21 +50,24 @@ class RAGService:
                 logger.info(f"Ollama setup skipped: {e}")
 
             # Cloud Fallback (Hugging Face Inference API)
-            if self.hf_token:
+            if self.hf_token and len(self.hf_token) > 10:
                 try:
                     from langchain_huggingface import HuggingFaceEndpointEmbeddings
-                    logger.info("Connecting to HuggingFace Inference API (all-MiniLM-L6-v2)...")
+                    logger.info(f"📡 Attempting Cloud Embeddings with token: {self.hf_token[:5]}***")
                     self._embeddings = HuggingFaceEndpointEmbeddings(
                         model="sentence-transformers/all-MiniLM-L6-v2",
-                        huggingfacehub_api_token=self.hf_token,
-                        timeout=30 # Prevent indefinite hanging
+                        huggingfacehub_api_token=self.hf_token
                     )
-                    # Quick test
-                    self._embeddings.embed_query("health check")
-                    logger.info("Cloud Embeddings initialized successfully.")
+                    # Test it
+                    self._embeddings.embed_query("ping")
+                    logger.info("✅ Cloud Embeddings ACTIVE.")
                 except Exception as e:
-                    logger.error(f"HuggingFace Inference API failed: {e}")
+                    logger.error(f"❌ Cloud Embedding Test FAILED: {e}")
+                    if "403" in str(e) or "Unauthorized" in str(e):
+                        logger.error("👉 REASON: Your HF_TOKEN is invalid or missing 'Inference API' permissions.")
                     self._embeddings = None
+            else:
+                logger.error("❌ HF_TOKEN is missing or too short in Environment Variables.")
             
             if self._embeddings is None:
                 logger.error("NO EMBEDDING ENGINE AVAILABLE. Indexing will fail.")

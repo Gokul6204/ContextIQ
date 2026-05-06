@@ -301,7 +301,9 @@ function App() {
 
       <div className={`sidebar ${sidebarOpen ? 'visible' : ''}`}>
         <div className="sidebar-header">
-          <div className="sidebar-title" onClick={() => { setViewMode('chat'); setSidebarOpen(false); }} style={{ cursor: 'pointer' }}>ContextIQ</div>
+          <div className="sidebar-title" onClick={() => { setViewMode('chat'); setSidebarOpen(false); }} style={{ cursor: 'pointer' }}>
+            <img src="https://res.cloudinary.com/dcyedb0sm/image/upload/v1778056203/contextiq_logo_li8tdr.svg" style={{width: "100%", height: "100%"}} alt="Logo" />
+          </div>
           <button className="mobile-close-btn" onClick={() => setSidebarOpen(false)}>✕</button>
         </div>
         

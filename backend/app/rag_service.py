@@ -107,7 +107,7 @@ class RAGService:
         return self._vector_db
 
     def add_documents(self, documents: List[Document], user_id: int):
-        """Add documents to the vector store with user isolation"""
+        """Add documents in small batches to prevent timeouts on Render/Cloud"""
         if not documents:
             logger.warning("No documents to add.")
             return
@@ -116,22 +116,31 @@ class RAGService:
         for doc in documents:
             doc.metadata["user_id"] = user_id
             if "source" in doc.metadata:
-                # Store only the filename in metadata for portability
                 fn = os.path.basename(doc.metadata["source"])
                 doc.metadata["source"] = fn
                 filename = fn
         
-        logger.info(f"Indexing {len(documents)} chunks for file: {filename} (User: {user_id})")
+        logger.info(f"🚀 Starting Cloud Indexing for {filename} ({len(documents)} chunks)...")
         
         if self.vector_db is None:
-            raise Exception("Vector Engine is offline.")
+            raise Exception("Vector Store connection failed.")
 
-        try:
-            self.vector_db.add_documents(documents)
-            logger.info(f"  Successfully indexed {filename} in Chroma.")
-        except Exception as e:
-            logger.error(f"  Failed to add documents to Chroma: {e}", exc_info=True)
-            raise
+        # Batching: Process 10 chunks at a time to stay within Render/HF limits
+        batch_size = 10
+        total = len(documents)
+        for i in range(0, total, batch_size):
+            batch = documents[i:i + batch_size]
+            current_batch_num = (i // batch_size) + 1
+            total_batches = (total + batch_size - 1) // batch_size
+            
+            logger.info(f"📤 Uploading batch {current_batch_num}/{total_batches}...")
+            try:
+                self.vector_db.add_documents(batch)
+            except Exception as e:
+                logger.error(f"❌ Batch {current_batch_num} failed: {e}")
+                raise
+        
+        logger.info(f"✅ SUCCESSFULLY INDEXED {total} chunks for {filename}.")
 
     def delete_document(self, file_path: str, user_id: int):
         """Delete all vectors associated with a specific file and user"""

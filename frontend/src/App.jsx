@@ -365,9 +365,6 @@ function App() {
                     <div className="source-card-meta">{s.indexed ? 'PDF Document' : '⚙️ Indexing...'}</div>
                   </div>
                   <div className="source-card-actions">
-                    <button className="card-summarize-btn" title="Summarize" onClick={() => handleSummarize(s.name)} disabled={summarizing || !s.indexed}>
-                      {summarizing ? '...' : '✨'}
-                    </button>
                     <button className="card-delete-btn" title="Delete" onClick={() => setDeleteModal({ show: true, type: 'source', name: s.name })}>🗑️</button>
                   </div>
                 </div>

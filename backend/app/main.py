@@ -131,7 +131,15 @@ def process_and_index(file_path: str, filename: str, user_id: int):
             logger.info(f"SUCCESSFULLY INDEXED: {filename} is now ready for search.")
         
     except Exception as e:
-        logger.error(f"  Error in background processing for {filename}: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error in background processing for {filename}: {str(e)}", exc_info=True)
+        # Mark as failed in DB if possible (we don't have a status field, so we'll just leave indexed=False)
+        # But we must ensure the user knows it failed. 
+        # For now, let's at least log it very clearly.
+        db_doc = db.query(UserDocument).filter(UserDocument.user_id == user_id, UserDocument.filename == filename).first()
+        if db_doc:
+            # We don't have a 'failed' column, so we'll just log it. 
+            # In a future update, we should add a 'status' column.
+            logger.error(f"  Indexing aborted for {filename}.")
     finally:
         # Cleanup local temp file if it exists
         if local_temp_path and os.path.exists(local_temp_path):

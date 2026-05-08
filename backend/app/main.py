@@ -120,7 +120,7 @@ def process_and_index(file_path: str, filename: str, user_id: int):
         # Clean up any existing vectors first
         rag_service.delete_document(filename, user_id)
         
-        logger.info(f"Sending chunks to Chroma Cloud for {filename}...")
+        logger.info(f"Sending chunks to [CLOUD] Chroma DB for {filename}...")
         rag_service.add_documents(docs, user_id)
         
         # --- STEP 3: FINALIZING ---

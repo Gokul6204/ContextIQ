@@ -30,54 +30,46 @@ class RAGService:
 
     @property
     def embeddings(self):
-        """Lazy initialization of embeddings to save memory on start"""
+        """Force Cloud Embeddings via Hugging Face if token is available"""
         if self._embeddings is None:
-            is_cloud = os.getenv("RENDER") is not None or os.getenv("SPACE_ID") is not None
-            
-            # 1. Try Local Ollama ONLY if NOT in the cloud
-            if not is_cloud:
-                try:
-                    from langchain_community.embeddings import OllamaEmbeddings
-                    import httpx
-                    with httpx.Client() as client:
-                        client.get("http://localhost:11434", timeout=2.0)
-                        logger.info("🏠 Ollama found locally. Using all-minilm.")
-                        self._embeddings = OllamaEmbeddings(model="all-minilm")
-                        return self._embeddings
-                except Exception:
-                    logger.info("Ollama not found or unreachable, falling back to Cloud.")
-
-            # 2. Cloud Fallback (Hugging Face Inference API) - This is free and fast
+            # 1. ALWAYS Try Hugging Face Cloud FIRST (Inference API)
             if self.hf_token and len(self.hf_token) > 5:
                 try:
                     from langchain_huggingface import HuggingFaceEndpointEmbeddings
-                    logger.info("📡 Initializing Hugging Face Cloud Embeddings...")
+                    logger.info("📡 [CLOUD] Initializing Hugging Face Endpoint Embeddings...")
                     self._embeddings = HuggingFaceEndpointEmbeddings(
                         model="sentence-transformers/all-MiniLM-L6-v2",
                         huggingfacehub_api_token=self.hf_token
                     )
-                    logger.info("✅ Cloud Embeddings ACTIVE.")
+                    logger.info("✅ [CLOUD] Hugging Face Embeddings ACTIVE.")
+                    return self._embeddings
                 except Exception as e:
-                    logger.error(f"❌ Cloud Embedding Init FAILED: {e}")
+                    logger.error(f"❌ [CLOUD] Hugging Face Init FAILED: {e}")
             
-            if self._embeddings is None:
-                logger.error("CRITICAL: No embedding engine available. Indexing will fail.")
-                raise RuntimeError("No valid embedding engine found. Please check HF_TOKEN.")
+            # 2. Local Fallback (Ollama) - Only if Cloud fails or Token is missing
+            try:
+                from langchain_community.embeddings import OllamaEmbeddings
+                import httpx
+                with httpx.Client() as client:
+                    client.get("http://localhost:11434", timeout=2.0)
+                    logger.info("🏠 [LOCAL] Falling back to Local Ollama.")
+                    self._embeddings = OllamaEmbeddings(model="all-minilm")
+            except Exception:
+                logger.error("CRITICAL: No cloud token found and local Ollama is unreachable.")
+                raise RuntimeError("No valid embedding engine found. Please provide HF_TOKEN for Cloud.")
                 
         return self._embeddings
 
     @property
     def vector_db(self):
+        """Force Cloud Chroma DB if API key is available"""
         if self._vector_db is None:
             from langchain_chroma import Chroma
             
-            # Use Local Chroma by default if running locally (not on Render)
-            # This makes local development MUCH faster
-            is_render = os.getenv("RENDER") is not None
-            
-            if is_render and self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
+            # 1. ALWAYS Try Chroma Cloud FIRST
+            if self.chroma_api_key and "placeholder" not in self.chroma_api_key.lower():
                 try:
-                    logger.info(f"🌐 Connecting to Chroma Cloud...")
+                    logger.info(f"🌐 [CLOUD] Connecting to Chroma Cloud ({self.chroma_database})...")
                     client = chromadb.CloudClient(
                         api_key=self.chroma_api_key,
                         tenant=self.chroma_tenant,
@@ -88,21 +80,23 @@ class RAGService:
                         collection_name="contextiq_v1",
                         embedding_function=self.embeddings
                     )
-                    logger.info("✅ Connected to Chroma Cloud.")
+                    logger.info("✅ [CLOUD] Successfully linked to Chroma Cloud.")
+                    return self._vector_db
                 except Exception as e:
-                    logger.warning(f"⚠️ Chroma Cloud connection failed: {e}. Falling back to Local.")
+                    logger.warning(f"⚠️ [CLOUD] Chroma Cloud connection failed: {e}")
             
-            if self._vector_db is None:
-                try:
-                    logger.info(f"🏠 Initializing Local Chroma at: {self.persist_directory}")
-                    self._vector_db = Chroma(
-                        persist_directory=self.persist_directory,
-                        collection_name="contextiq_v1",
-                        embedding_function=self.embeddings
-                    )
-                    logger.info("✅ Local Chroma initialized.")
-                except Exception as e:
-                    logger.error(f"❌ Critical Failure: {e}", exc_info=True)
+            # 2. Local Fallback - Only if Cloud keys are missing or connection fails
+            try:
+                logger.info(f"🏠 [LOCAL] Initializing Local Chroma at: {self.persist_directory}")
+                self._vector_db = Chroma(
+                    persist_directory=self.persist_directory,
+                    collection_name="contextiq_v1",
+                    embedding_function=self.embeddings
+                )
+                logger.info("✅ [LOCAL] Local Chroma initialized.")
+            except Exception as e:
+                logger.error(f"❌ [CRITICAL] Vector Store Failure: {e}", exc_info=True)
+                raise
         return self._vector_db
 
     def add_documents(self, documents: List[Document], user_id: int):
@@ -111,6 +105,15 @@ class RAGService:
             logger.warning("No documents to add.")
             return
         
+        # --- DEBUG LOGGING ---
+        # Look inside the langchain wrapper to see the real client type
+        internal_client = self.vector_db._client if hasattr(self.vector_db, '_client') else self.vector_db
+        db_type = "CLOUD 🌐" if "CloudClient" in str(type(internal_client)) else "LOCAL 🏠"
+        logger.info(f"🛠️ [DEBUG] Vector Store Type: {db_type}")
+        if db_type == "CLOUD 🌐":
+            logger.info(f"🛠️ [DEBUG] Target: Tenant={self.chroma_tenant}, DB={self.chroma_database}")
+        # --------------------
+
         filename = "unknown"
         for doc in documents:
             doc.metadata["user_id"] = user_id
@@ -119,7 +122,7 @@ class RAGService:
                 doc.metadata["source"] = fn
                 filename = fn
         
-        logger.info(f"🚀 Starting Cloud Indexing for {filename} ({len(documents)} chunks)...")
+        logger.info(f"🚀 [INDEXING] Starting for {filename} ({len(documents)} chunks) to {db_type}...")
         
         if self.vector_db is None:
             raise Exception("Vector Store connection failed.")
@@ -132,14 +135,18 @@ class RAGService:
             current_batch_num = (i // batch_size) + 1
             total_batches = (total + batch_size - 1) // batch_size
             
-            logger.info(f"📤 Uploading batch {current_batch_num}/{total_batches}...")
+            logger.info(f"📤 [UPLOAD] Batch {current_batch_num}/{total_batches} to {db_type}...")
             try:
                 self.vector_db.add_documents(batch)
             except Exception as e:
-                logger.error(f"❌ Batch {current_batch_num} failed: {e}")
+                error_msg = str(e)
+                if "403" in error_msg or "Forbidden" in error_msg:
+                    logger.error("❌ [HF ERROR] Your HF_TOKEN does not have 'Inference' permissions.")
+                    logger.error("👉 Please create a new WRITE token at: https://huggingface.co/settings/tokens")
+                logger.error(f"❌ [FAILED] Batch {current_batch_num}: {e}")
                 raise
         
-        logger.info(f"✅ SUCCESSFULLY INDEXED {total} chunks for {filename}.")
+        logger.info(f"✅ [SUCCESS] Indexed {total} chunks for {filename} in {db_type}.")
 
     def delete_document(self, file_path: str, user_id: int):
         """Delete all vectors associated with a specific file and user"""

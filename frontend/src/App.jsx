@@ -23,6 +23,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(null)
   const [summarizing, setSummarizing] = useState(false)
+  const [chatsLoaded, setChatsLoaded] = useState(false)
   
   const [deleteModal, setDeleteModal] = useState({ show: false, type: '', id: null, name: '' })
 
@@ -49,6 +50,13 @@ function App() {
     }
   }, [sources, uploadingFile, token])
 
+  // Automatically create a new chat ONLY if the list is confirmed empty after loading
+  useEffect(() => {
+    if (token && chatsLoaded && chats.length === 0 && !loading && !summarizing) {
+      handleNewChat()
+    }
+  }, [chats.length, chatsLoaded, token])
+
   const fetchChats = async () => {
     try {
       const response = await fetch(`${API_BASE}/chats`, {
@@ -57,6 +65,12 @@ function App() {
       if (response.ok) {
         const data = await response.json()
         setChats(data.chats)
+        setChatsLoaded(true)
+        
+        // If chats exist but none is selected, select the most recent one
+        if (data.chats.length > 0 && !activeChat) {
+          selectChat(data.chats[0])
+        }
       }
     } catch (error) { console.error(error) }
   }
@@ -118,7 +132,7 @@ function App() {
     setUserEmail(null)
     setViewMode('chat')
     setMessages([{ type: 'ai', text: 'Welcome to ContextIQ.', sources: [] }])
-    setChats([]); setSources([]); setActiveChat(null)
+    setChats([]); setSources([]); setActiveChat(null); setChatsLoaded(false)
   }
 
   const handleNewChat = async () => {
@@ -266,15 +280,25 @@ function App() {
     return (
       <div className="auth-page">
         <div className="auth-card">
-          <div className="auth-logo">ContextIQ</div>
-          <p className="auth-subtitle">Elevate your intelligence</p>
+          <div className="auth-logo">
+            <img src="https://res.cloudinary.com/dcyedb0sm/image/upload/v1778056203/contextiq_logo_li8tdr.svg" alt="Logo" />
+          </div>
           {authError && <div className={`auth-message ${authError.includes('successful') ? 'success' : 'error'}`}>{authError}</div>}
-          <input type="email" placeholder="Email" className="auth-input" id="authEmail" />
-          <input type="password" placeholder="Password" className="auth-input" id="authPass" />
-          <button className="auth-submit" onClick={() => handleAuth(document.getElementById('authEmail').value, document.getElementById('authPass').value)}>
-            {authMode === 'login' ? 'Sign In' : 'Create Account'}
-          </button>
-          <div className="auth-switch" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}>
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const email = document.getElementById('authEmail').value;
+            const pass = document.getElementById('authPass').value;
+            handleAuth(email, pass);
+          }}>
+            <input type="email" placeholder="Email" className="auth-input" id="authEmail" required />
+            <input type="password" placeholder="Password" className="auth-input" id="authPass" required />
+            <button type="submit" className="auth-submit">
+              {authMode === 'login' ? 'Sign In' : 'Create Account'}
+            </button>
+          </form>
+
+          <div className="auth-switch" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }} style={{ cursor: 'pointer' }}>
             {authMode === 'login' ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </div>
         </div>
@@ -291,7 +315,7 @@ function App() {
             <p>Are you sure you want to delete <strong>{deleteModal.name}</strong>?</p>
             <div className="modal-actions">
               <button className="cancel-btn" onClick={() => setDeleteModal({ ...deleteModal, show: false })}>Cancel</button>
-              <button className="confirm-btn" onClick={confirmDelete}>Delete</button>
+              <button className="confirm-btn" onClick={confirmDelete} autoFocus>Delete</button>
             </div>
           </div>
         </div>
@@ -301,9 +325,9 @@ function App() {
 
       <div className={`sidebar ${sidebarOpen ? 'visible' : ''}`}>
         <div className="sidebar-header">
-          <div className="sidebar-title" onClick={() => { setViewMode('chat'); setSidebarOpen(false); }} style={{ cursor: 'pointer' }}>
-            <img src="https://res.cloudinary.com/dcyedb0sm/image/upload/v1778056203/contextiq_logo_li8tdr.svg" style={{width: "100%", height: "100%"}} alt="Logo" />
-          </div>
+          <button className="sidebar-title" onClick={() => { setViewMode('chat'); setSidebarOpen(false); }}>
+            <img src="https://res.cloudinary.com/dcyedb0sm/image/upload/v1778056203/contextiq_logo_li8tdr.svg" alt="Logo" />
+          </button>
           <button className="mobile-close-btn" onClick={() => setSidebarOpen(false)}>✕</button>
         </div>
         
@@ -322,10 +346,14 @@ function App() {
           </div>
           <div className="history-list premium-scroll">
             {chats.map(c => (
-              <div key={c.id} className={`history-item ${activeChat?.id === c.id && viewMode === 'chat' ? 'active' : ''}`} onClick={() => selectChat(c)}>
+              <button 
+                key={c.id} 
+                className={`history-item ${activeChat?.id === c.id && viewMode === 'chat' ? 'active' : ''}`} 
+                onClick={() => selectChat(c)}
+              >
                 <div className="history-title">{c.title}</div>
-                <button className="delete-btn" onClick={(e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'chat', id: c.id, name: c.title }) }}>🗑️</button>
-              </div>
+                <div className="delete-btn" onClick={(e) => { e.stopPropagation(); setDeleteModal({ show: true, type: 'chat', id: c.id, name: c.title }) }}>🗑️</div>
+              </button>
             ))}
           </div>
         </div>
